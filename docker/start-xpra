@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+display="${DISPLAY:-:100}"
+display_number="${display#:}"
+display_number="${display_number%%.*}"
+xpra_port="${XPRA_PORT:-14500}"
+runtime_dir="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+log_file="${XPRA_LOG_FILE:-${runtime_dir}/xpra-${display_number}.log}"
+ready_timeout="${XPRA_READY_TIMEOUT:-30}"
+
+mkdir -p "${runtime_dir}" "$(dirname "${log_file}")"
+chmod 700 "${runtime_dir}"
+
+is_ready() {
+  [[ -S "/tmp/.X11-unix/X${display_number}" ]] &&
+    xpra list 2>/dev/null | grep -Fq "LIVE session at ${display}"
+}
+
+if is_ready; then
+  printf 'xpra is already ready on %s\n' "${display}"
+  exit 0
+fi
+
+xpra start "${display}" \
+  --bind-tcp="0.0.0.0:${xpra_port}" \
+  --html=on \
+  --daemon=yes \
+  --exit-with-children=no \
+  --pulseaudio=no \
+  --notifications=no \
+  --mdns=no \
+  --log-file="${log_file}"
+
+deadline=$((SECONDS + ready_timeout))
+until is_ready; do
+  if (( SECONDS >= deadline )); then
+    printf 'xpra did not become ready on %s within %ss\n' "${display}" "${ready_timeout}" >&2
+    if [[ -f "${log_file}" ]]; then
+      printf '%s\n' '--- xpra log ---' >&2
+      tail -n 200 "${log_file}" >&2
+    fi
+    exit 1
+  fi
+  sleep 1
+done
+
+printf 'xpra is ready on %s (HTML client port %s)\n' "${display}" "${xpra_port}"

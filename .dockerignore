@@ -1,0 +1,8 @@
+.git
+.gitignore
+.env
+npm-debug.log*
+coverage
+tests
+agent-sandbox
+test-home

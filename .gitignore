@@ -1,0 +1,6 @@
+.env
+.playwright-cli/
+coverage/
+npm-debug.log*
+agent-sandbox
+test-home/

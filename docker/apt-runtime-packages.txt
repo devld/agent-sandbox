@@ -1,0 +1,28 @@
+# Common packages
+bash
+ca-certificates
+curl
+fd-find
+file
+git
+gnupg
+iputils-ping
+jq
+locales
+netcat-openbsd
+openssh-client
+procps
+psmisc
+ripgrep
+shellcheck
+socat
+tar
+tini
+tzdata
+unzip
+wget
+xz-utils
+zip
+
+# Desktop
+fonts-noto-cjk

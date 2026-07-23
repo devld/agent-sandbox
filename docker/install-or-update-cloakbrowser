@@ -1,0 +1,53 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+if (( EUID == 0 )); then
+  printf 'install-or-update-cloakbrowser must run as the sandbox user\n' >&2
+  exit 77
+fi
+
+if ! command -v npm >/dev/null 2>&1; then
+  printf 'Node.js and npm are required to install CloakBrowser\n' >&2
+  exit 69
+fi
+
+# Keep the CloakBrowser wrapper ephemeral. A single npx environment guarantees
+# that install, update, and info all use the same resolved wrapper and
+# playwright-core versions.
+diagnostics="$(
+  npx --yes \
+    --package="cloakbrowser@latest" \
+    --package="playwright-core@latest" \
+    --call='cloakbrowser install >&2 && cloakbrowser update >&2 && cloakbrowser info --quick --json'
+)"
+browser_path="$(
+  jq -er '.binary.path | select(type == "string" and length > 0)' \
+    <<<"${diagnostics}"
+)"
+if [[ ! -x "${browser_path}" ]]; then
+  printf 'CloakBrowser executable is missing or not executable: %s\n' "${browser_path}" >&2
+  exit 70
+fi
+
+config_dir="${HOME}/.playwright"
+config_file="${config_dir}/cli.config.json"
+install -d -m 0755 "${config_dir}"
+if [[ ! -e "${config_file}" ]]; then
+  install -m 0644 \
+    /etc/agent-sandbox/playwright-cli.config.json \
+    "${config_file}"
+fi
+
+temporary_config="$(mktemp "${config_file}.tmp.XXXXXX")"
+trap 'rm -f "${temporary_config}"' EXIT
+jq --arg browser_path "${browser_path}" '
+  .browser.browserName = "chromium" |
+  .browser.launchOptions.chromiumSandbox = false |
+  .browser.launchOptions.executablePath = $browser_path
+' "${config_file}" >"${temporary_config}"
+chmod 0644 "${temporary_config}"
+mv -f "${temporary_config}" "${config_file}"
+trap - EXIT
+
+printf 'CloakBrowser is ready at %s\n' "${browser_path}"
+printf 'Playwright CLI config updated: %s\n' "${config_file}"

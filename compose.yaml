@@ -1,0 +1,24 @@
+services:
+  sandbox:
+    image: ghcr.io/devld/agent-sandbox:latest
+    environment:
+      SANDBOX_USERNAME: "${SANDBOX_USERNAME:-agent}"
+      SANDBOX_UID: "${SANDBOX_UID:-1000}"
+      SANDBOX_GID: "${SANDBOX_GID:-1000}"
+      SANDBOX_API_TOKEN: "${SANDBOX_API_TOKEN:-}"
+      EXEC_INLINE_OUTPUT_LIMIT_BYTES: "${EXEC_INLINE_OUTPUT_LIMIT_BYTES:-65536}"
+      EXEC_OUTPUT_TTL: "${EXEC_OUTPUT_TTL:-12h}"
+      EXEC_CLEANUP_INTERVAL: "${EXEC_CLEANUP_INTERVAL:-10m}"
+      SANDBOX_BROWSER_DISABLED: "${SANDBOX_BROWSER_DISABLED:-false}"
+      XPRA_AUTO_START: "${XPRA_AUTO_START:-false}"
+      DISPLAY: "${DISPLAY:-:100}"
+      TZ: "${TZ:-UTC}"
+    ports:
+      - "${SANDBOX_API_PORT:-3000}:3000"
+      - "${XPRA_PORT:-14500}:14500"
+    volumes:
+      - sandbox-home:/home/${SANDBOX_USERNAME:-agent}
+    restart: unless-stopped
+
+volumes:
+  sandbox-home:
