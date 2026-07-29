@@ -11,6 +11,7 @@ and code snippet runs as a runtime-created, unprivileged user.
 - Globally available uv, plus user-writable npm and uv tool/Python directories.
 - Optional `@playwright/cli` backed by CloakBrowser's Chromium, available
   through `exec` when browser support is enabled.
+- Optional supervised Chrome remote debugging endpoint for `chrome-devtools-mcp`.
 - Noto CJK fonts for correctly rendering Chinese, Japanese, and Korean text.
 - Optional xpra/Xvfb desktop with an HTML client on port 14500.
 - REST endpoints for foreground and background shell/JavaScript/Python tasks.
@@ -63,6 +64,9 @@ running services.
 | `SANDBOX_API_PORT` | `3000` | API, Compose | API listen port when passed to the container. In the provided Compose file it selects the host port published to container port `3000`. |
 | `SANDBOX_API_TOKEN` | Empty | API | Bearer token required by execution and MCP routes. Empty disables authentication. |
 | `SANDBOX_BROWSER_DISABLED` | `false` | Entrypoint, MCP | When `true`, skips browser tooling initialization and omits the built-in Playwright guidance. Existing browser files remain unchanged. |
+| `CHROME_REMOTE_DEBUGGING_ENABLED` | `false` | Entrypoint, Chrome | Starts a supervised headed Chrome with remote debugging enabled. Requires browser tooling and automatically starts xpra. |
+| `CHROME_REMOTE_DEBUGGING_READY_TIMEOUT` | `30` | Entrypoint, Chrome | Seconds to wait for the Chrome DevTools endpoint during container startup. |
+| `CHROME_REMOTE_DEBUGGING_USER_DATA_DIR` | `$HOME/.config/agent-sandbox/chrome-devtools-profile` | Chrome | Absolute path of the dedicated remote-debugging browser profile. |
 | `EXEC_INLINE_OUTPUT_LIMIT_BYTES` | `65536` | API | Per-stream threshold after which complete stdout or stderr moves to an output file. |
 | `EXEC_OUTPUT_DIR` | `/tmp/agent-sandbox/tasks` | API | Root directory for task output files and completion markers. |
 | `EXEC_OUTPUT_TTL` | `12h` | API | Retention duration for completed task output files. Uses Go duration syntax. |
@@ -103,6 +107,38 @@ already included in the image.
 agent executions and written to `/etc/profile.d/agent-sandbox-display.sh`.
 `start-xpra` is idempotent and waits for both the X11 socket and a live xpra
 session, avoiding browser startup races.
+
+Set `CHROME_REMOTE_DEBUGGING_ENABLED=true` to start a separate headed Chrome
+instance at `about:blank`. The supervisor restarts Chrome with bounded backoff
+when its last window is closed or the browser crashes. This mode starts xpra
+even when `XPRA_AUTO_START=false`, and it uses the CloakBrowser executable
+recorded in the Playwright CLI configuration. The dedicated user data directory
+is required by current Chrome versions when command-line remote debugging is
+enabled.
+
+Chrome itself accepts remote debugging connections only on the container
+loopback interface. The image therefore uses `socat` to bridge the same port
+from the container network interface. Compose publishes that port only on host
+loopback at `127.0.0.1:9222`. The Chrome DevTools Protocol has no authentication
+and provides complete control over the browser; do not publish it on an
+untrusted network.
+
+Configure `chrome-devtools-mcp` to connect to the supervised browser:
+
+```json
+{
+  "mcpServers": {
+    "chrome-devtools": {
+      "command": "npx",
+      "args": [
+        "--yes",
+        "chrome-devtools-mcp@latest",
+        "--browser-url=http://127.0.0.1:9222"
+      ]
+    }
+  }
+}
+```
 
 Open `http://localhost:14500/` to access the xpra HTML client. Agent commands can
 use the browser directly:

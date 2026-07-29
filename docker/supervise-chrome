@@ -1,0 +1,135 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+if (( EUID == 0 )); then
+  printf 'supervise-chrome must run as the sandbox user\n' >&2
+  exit 77
+fi
+
+debug_port="${CHROME_REMOTE_DEBUGGING_PORT:-9222}"
+user_data_dir="${CHROME_REMOTE_DEBUGGING_USER_DATA_DIR:-${HOME}/.config/agent-sandbox/chrome-devtools-profile}"
+playwright_config="${HOME}/.playwright/cli.config.json"
+
+if [[ ! "${debug_port}" =~ ^[0-9]+$ ]] || (( debug_port < 1 || debug_port > 65535 )); then
+  printf 'CHROME_REMOTE_DEBUGGING_PORT must be an integer between 1 and 65535\n' >&2
+  exit 64
+fi
+if [[ "${user_data_dir}" != /* ]]; then
+  printf 'CHROME_REMOTE_DEBUGGING_USER_DATA_DIR must be an absolute path\n' >&2
+  exit 64
+fi
+if [[ ! -f "${playwright_config}" ]]; then
+  printf 'Playwright CLI config is missing: %s\n' "${playwright_config}" >&2
+  exit 66
+fi
+
+browser_path="$(
+  jq -er '.browser.launchOptions.executablePath | select(type == "string" and length > 0)' \
+    "${playwright_config}"
+)"
+if [[ ! -x "${browser_path}" ]]; then
+  printf 'CloakBrowser executable is missing or not executable: %s\n' "${browser_path}" >&2
+  exit 70
+fi
+
+read -r bind_address _ < <(hostname -I)
+if [[ -z "${bind_address}" || "${bind_address}" == 127.* || "${bind_address}" == *:* ]]; then
+  printf 'could not determine a non-loopback container IPv4 address for Chrome debugging\n' >&2
+  exit 69
+fi
+
+install -d -m 0700 "${user_data_dir}"
+
+chrome_pid=""
+proxy_pid=""
+stopping=false
+
+stop_child() {
+  local pid="${1:-}"
+  if [[ -n "${pid}" ]] && kill -0 "${pid}" 2>/dev/null; then
+    kill -TERM "${pid}" 2>/dev/null || true
+  fi
+}
+
+shutdown() {
+  stopping=true
+  stop_child "${chrome_pid}"
+  stop_child "${proxy_pid}"
+}
+
+trap shutdown INT TERM
+
+start_proxy() {
+  socat \
+    "TCP4-LISTEN:${debug_port},bind=${bind_address},reuseaddr,fork" \
+    "TCP4:127.0.0.1:${debug_port}" &
+  proxy_pid=$!
+  printf 'Chrome remote debugging proxy is listening on %s:%s\n' \
+    "${bind_address}" "${debug_port}"
+}
+
+start_proxy
+
+restart_delay=1
+while [[ "${stopping}" == "false" ]]; do
+  started_at="${SECONDS}"
+  start-xpra
+  printf 'starting Chrome remote debugging on 127.0.0.1:%s\n' "${debug_port}"
+  "${browser_path}" \
+    --remote-debugging-port="${debug_port}" \
+    --user-data-dir="${user_data_dir}" \
+    --no-first-run \
+    --no-default-browser-check \
+    --no-sandbox \
+    --disable-background-mode \
+    --disable-dev-shm-usage \
+    --disable-session-crashed-bubble \
+    about:blank &
+  chrome_pid=$!
+
+  while kill -0 "${chrome_pid}" 2>/dev/null && kill -0 "${proxy_pid}" 2>/dev/null; do
+    sleep 1
+  done
+
+  if ! kill -0 "${proxy_pid}" 2>/dev/null; then
+    set +e
+    wait "${proxy_pid}"
+    proxy_status=$?
+    set -e
+    printf 'Chrome remote debugging proxy exited with status %s\n' "${proxy_status}" >&2
+    stop_child "${chrome_pid}"
+    wait "${chrome_pid}" 2>/dev/null || true
+    chrome_pid=""
+    if [[ "${stopping}" == "false" ]]; then
+      sleep "${restart_delay}"
+      start_proxy
+    fi
+  else
+    set +e
+    wait "${chrome_pid}"
+    chrome_status=$?
+    set -e
+    chrome_pid=""
+    printf 'Chrome exited with status %s\n' "${chrome_status}" >&2
+  fi
+
+  if [[ "${stopping}" == "true" ]]; then
+    break
+  fi
+
+  runtime=$((SECONDS - started_at))
+  if (( runtime >= 30 )); then
+    restart_delay=1
+  elif (( restart_delay < 10 )); then
+    restart_delay=$((restart_delay * 2))
+    if (( restart_delay > 10 )); then
+      restart_delay=10
+    fi
+  fi
+  printf 'restarting Chrome in %ss\n' "${restart_delay}" >&2
+  sleep "${restart_delay}"
+done
+
+shutdown
+wait "${chrome_pid}" 2>/dev/null || true
+wait "${proxy_pid}" 2>/dev/null || true
