@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+if (( EUID == 0 )); then
+  printf 'configure-playwright-cli must run as the sandbox user\n' >&2
+  exit 77
+fi
+
+config_file="${HOME}/.playwright/cli.config.json"
+cdp_endpoint="${PLAYWRIGHT_CLI_CDP_ENDPOINT:-}"
+
+if [[ ! -f "${config_file}" ]]; then
+  printf 'Playwright CLI config is missing: %s\n' "${config_file}" >&2
+  exit 66
+fi
+
+temporary_config="$(mktemp "${config_file}.tmp.XXXXXX")"
+trap 'rm -f "${temporary_config}"' EXIT
+
+if [[ -n "${cdp_endpoint}" ]]; then
+  jq --arg cdp_endpoint "${cdp_endpoint}" \
+    '.browser.cdpEndpoint = $cdp_endpoint' \
+    "${config_file}" >"${temporary_config}"
+  status="configured for ${cdp_endpoint}"
+else
+  jq 'del(.browser.cdpEndpoint)' \
+    "${config_file}" >"${temporary_config}"
+  status="configured for managed browser sessions"
+fi
+
+chmod 0644 "${temporary_config}"
+mv -f "${temporary_config}" "${config_file}"
+trap - EXIT
+
+printf 'Playwright CLI %s\n' "${status}"

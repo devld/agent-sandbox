@@ -83,10 +83,11 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     && rm -f /tmp/apt-runtime-packages.txt
 
 COPY --from=control-plane-builder /out/agent-sandbox /usr/local/bin/agent-sandbox
-COPY docker/playwright-cli.config.json /etc/agent-sandbox/playwright-cli.config.json
-COPY docker/entrypoint.sh docker/install-or-update-cloakbrowser docker/start-xpra docker/supervise-chrome /usr/local/bin/
+COPY docker/playwright-cli.config.json docker/playwright-cli.README.md /etc/agent-sandbox/
+COPY docker/configure-playwright-cli docker/entrypoint.sh docker/install-or-update-cloakbrowser docker/start-xpra docker/supervise-chrome /usr/local/bin/
 RUN chmod 0755 \
       /usr/local/bin/agent-sandbox \
+      /usr/local/bin/configure-playwright-cli \
       /usr/local/bin/entrypoint.sh \
       /usr/local/bin/install-or-update-cloakbrowser \
       /usr/local/bin/start-xpra \

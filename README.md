@@ -64,7 +64,7 @@ running services.
 | `SANDBOX_API_PORT` | `3000` | API, Compose | API listen port when passed to the container. In the provided Compose file it selects the host port published to container port `3000`. |
 | `SANDBOX_API_TOKEN` | Empty | API | Bearer token required by execution and MCP routes. Empty disables authentication. |
 | `SANDBOX_BROWSER_DISABLED` | `false` | Entrypoint, MCP | When `true`, skips browser tooling initialization and omits the built-in Playwright guidance. Existing browser files remain unchanged. |
-| `CHROME_REMOTE_DEBUGGING_ENABLED` | `false` | Entrypoint, Chrome | Starts a supervised headed Chrome with remote debugging enabled. Requires browser tooling and automatically starts xpra. |
+| `CHROME_REMOTE_DEBUGGING_ENABLED` | `false` | Entrypoint, Chrome, Playwright CLI | Starts a supervised Chrome with remote debugging enabled and configures Playwright CLI to use its CDP endpoint by default. Chrome is headed when xpra auto-start is enabled and headless otherwise. Requires browser tooling. |
 | `CHROME_REMOTE_DEBUGGING_READY_TIMEOUT` | `30` | Entrypoint, Chrome | Seconds to wait for the Chrome DevTools endpoint during container startup. |
 | `CHROME_REMOTE_DEBUGGING_USER_DATA_DIR` | `$HOME/.config/agent-sandbox/chrome-devtools-profile` | Chrome | Absolute path of the dedicated remote-debugging browser profile. |
 | `EXEC_INLINE_OUTPUT_LIMIT_BYTES` | `65536` | API | Per-stream threshold after which complete stdout or stderr moves to an output file. |
@@ -108,15 +108,28 @@ agent executions and written to `/etc/profile.d/agent-sandbox-display.sh`.
 `start-xpra` is idempotent and waits for both the X11 socket and a live xpra
 session, avoiding browser startup races.
 
-Set `CHROME_REMOTE_DEBUGGING_ENABLED=true` to start a separate headed Chrome
-instance at `about:blank`. The supervisor restarts Chrome with bounded backoff
-when its last window is closed or the browser crashes. This mode starts xpra
-even when `XPRA_AUTO_START=false`, and it uses the CloakBrowser executable
-recorded in the Playwright CLI configuration. The dedicated user data directory
-is required by current Chrome versions when command-line remote debugging is
-enabled. The supervisor and its CDP proxy run as root so sandbox-user processes
-cannot terminate them, while xpra and Chrome are always launched through
-`setpriv` as the unprivileged sandbox user.
+Set `CHROME_REMOTE_DEBUGGING_ENABLED=true` to start a separate Chrome instance
+at `about:blank`. The supervisor restarts Chrome with bounded backoff when its
+last window is closed or the browser crashes. `XPRA_AUTO_START` remains the
+single switch that controls whether xpra starts: when it is `true`, Chrome runs
+headed on the configured `DISPLAY` and can be operated through the xpra HTML
+client; when it is `false`, Chrome runs headless without starting an X server.
+Chrome uses the CloakBrowser executable recorded in the Playwright CLI
+configuration. The dedicated user data directory is required by current Chrome
+versions when command-line remote debugging is enabled. Before each supervised
+launch, stale Chromium singleton locks from a stopped or replaced container are
+removed from that dedicated profile. The supervisor and its CDP proxy run as
+root so sandbox-user processes cannot terminate them, while xpra and Chrome are
+always launched through `setpriv` as the unprivileged sandbox user.
+
+The entrypoint also reconciles Playwright CLI's global configuration on every
+startup. When Chrome remote debugging is enabled, it sets
+`browser.cdpEndpoint` to the supervised endpoint at `127.0.0.1` so normal
+`playwright-cli open`, navigation, snapshot, and interaction commands use that
+browser and its persistent profile. When remote debugging is disabled, the
+managed `cdpEndpoint` field is removed and Playwright CLI returns to launching
+its own isolated browser sessions. The generated `~/.playwright/README.md`
+lists every managed configuration field that should not be edited manually.
 
 Chrome itself accepts remote debugging connections only on the container
 loopback interface. The image therefore uses `socat` to bridge the same port
@@ -153,6 +166,13 @@ playwright-cli screenshot
 
 The initialized home points Playwright CLI's `browser.launchOptions.executablePath`
 at CloakBrowser's downloaded Chromium instead of Playwright's bundled browser.
+With remote debugging enabled, Playwright CLI attaches to the supervised
+browser by default and shares its tabs, cookies, and other profile state. CLI
+session shutdown disconnects from the attached browser; the supervisor retains
+browser ownership. With remote debugging disabled, normal CLI sessions use
+separate temporary profiles. In that mode, when xpra is running,
+`playwright-cli open --headed` uses the same `DISPLAY` and its separate browser
+window is also visible through the xpra HTML client.
 Run `install-or-update-cloakbrowser` as the sandbox user at any time to update
 the browser binary and refresh that path as one operation. Running a raw
 `npx cloakbrowser update` command instead does not rewrite the Playwright CLI

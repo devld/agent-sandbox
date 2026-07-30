@@ -16,6 +16,7 @@ display="${DISPLAY:-:100}"
 display_number="${display#:}"
 display_number="${display_number%%.*}"
 runtime_dir="${XDG_RUNTIME_DIR:-/run/user/${sandbox_uid}}"
+xpra_auto_start="${XPRA_AUTO_START:-false}"
 debug_port="${CHROME_REMOTE_DEBUGGING_PORT:-9222}"
 user_data_dir="${CHROME_REMOTE_DEBUGGING_USER_DATA_DIR:-${sandbox_home}/.config/agent-sandbox/chrome-devtools-profile}"
 playwright_config="${sandbox_home}/.playwright/cli.config.json"
@@ -30,6 +31,11 @@ if [[ ! "${sandbox_uid}" =~ ^[0-9]+$ ]] || (( sandbox_uid == 0 )); then
 fi
 if [[ ! "${sandbox_gid}" =~ ^[0-9]+$ ]] || (( sandbox_gid == 0 )); then
   printf 'SANDBOX_GID must be a positive integer\n' >&2
+  exit 64
+fi
+xpra_auto_start="${xpra_auto_start,,}"
+if [[ "${xpra_auto_start}" != "true" && "${xpra_auto_start}" != "false" ]]; then
+  printf 'XPRA_AUTO_START must be true or false\n' >&2
   exit 64
 fi
 if [[ "${sandbox_home}" != /* ]]; then
@@ -118,12 +124,27 @@ start_proxy() {
 
 start_proxy
 
+chrome_display_args=()
+chrome_mode="headed"
+if [[ "${xpra_auto_start}" == "false" ]]; then
+  chrome_display_args+=(--headless=new)
+  chrome_mode="headless"
+fi
+
 restart_delay=1
 while [[ "${stopping}" == "false" ]]; do
   started_at="${SECONDS}"
-  "${sandbox_command[@]}" start-xpra
-  printf 'starting Chrome remote debugging on 127.0.0.1:%s\n' "${debug_port}"
+  if [[ "${xpra_auto_start}" == "true" ]]; then
+    "${sandbox_command[@]}" start-xpra
+  fi
+  "${sandbox_command[@]}" rm -f -- \
+    "${user_data_dir}/SingletonCookie" \
+    "${user_data_dir}/SingletonLock" \
+    "${user_data_dir}/SingletonSocket"
+  printf 'starting %s Chrome remote debugging on 127.0.0.1:%s\n' \
+    "${chrome_mode}" "${debug_port}"
   "${sandbox_command[@]}" "${browser_path}" \
+    "${chrome_display_args[@]}" \
     --remote-debugging-port="${debug_port}" \
     --user-data-dir="${user_data_dir}" \
     --no-first-run \

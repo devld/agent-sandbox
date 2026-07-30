@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Literal shell initialization snippets are expanded later by the sandbox shell.
-# shellcheck disable=SC2016,SC2317
+# shellcheck disable=SC2016,SC2317,SC2329
 set -Eeuo pipefail
 
 sandbox_user="${SANDBOX_USERNAME:-agent}"
@@ -12,6 +12,7 @@ display_number="${display#:}"
 display_number="${display_number%%.*}"
 browser_disabled="${SANDBOX_BROWSER_DISABLED:-false}"
 chrome_remote_debugging_enabled="${CHROME_REMOTE_DEBUGGING_ENABLED:-false}"
+xpra_auto_start="${XPRA_AUTO_START:-false}"
 
 if [[ ! "${sandbox_user}" =~ ^[a-z_][a-z0-9_-]{0,31}$ ]] || [[ "${sandbox_user}" == "root" ]]; then
   printf 'SANDBOX_USERNAME must be a valid non-root Linux username\n' >&2
@@ -35,11 +36,32 @@ if [[ "${chrome_remote_debugging_enabled}" != "true" && "${chrome_remote_debuggi
   printf 'CHROME_REMOTE_DEBUGGING_ENABLED must be true or false\n' >&2
   exit 64
 fi
+xpra_auto_start="${xpra_auto_start,,}"
+if [[ "${xpra_auto_start}" != "true" && "${xpra_auto_start}" != "false" ]]; then
+  printf 'XPRA_AUTO_START must be true or false\n' >&2
+  exit 64
+fi
 if [[ "${chrome_remote_debugging_enabled}" == "true" && "${browser_disabled}" == "true" ]]; then
   printf 'CHROME_REMOTE_DEBUGGING_ENABLED requires SANDBOX_BROWSER_DISABLED=false\n' >&2
   exit 64
 fi
 export CHROME_REMOTE_DEBUGGING_ENABLED="${chrome_remote_debugging_enabled}"
+export XPRA_AUTO_START="${xpra_auto_start}"
+
+chrome_remote_debugging_port="${CHROME_REMOTE_DEBUGGING_PORT:-9222}"
+chrome_remote_debugging_ready_timeout="${CHROME_REMOTE_DEBUGGING_READY_TIMEOUT:-30}"
+if [[ "${chrome_remote_debugging_enabled}" == "true" ]]; then
+  if [[ ! "${chrome_remote_debugging_port}" =~ ^[0-9]+$ ]] ||
+    (( chrome_remote_debugging_port < 1 || chrome_remote_debugging_port > 65535 )); then
+    printf 'CHROME_REMOTE_DEBUGGING_PORT must be an integer between 1 and 65535\n' >&2
+    exit 64
+  fi
+  if [[ ! "${chrome_remote_debugging_ready_timeout}" =~ ^[0-9]+$ ]] ||
+    (( chrome_remote_debugging_ready_timeout < 1 )); then
+    printf 'CHROME_REMOTE_DEBUGGING_READY_TIMEOUT must be a positive integer\n' >&2
+    exit 64
+  fi
+fi
 
 if ! getent group "${sandbox_gid}" >/dev/null; then
   groupadd --gid "${sandbox_gid}" "${sandbox_user}"
@@ -119,8 +141,12 @@ fi
 
 browser_marker="${state_dir}/browser-initialized"
 if [[ "${browser_disabled}" == "false" ]]; then
+  install -d -m 0755 -o "${sandbox_user}" -g "${group_name}" "${sandbox_home}/.playwright"
+  install -m 0644 -o "${sandbox_user}" -g "${group_name}" \
+    /etc/agent-sandbox/playwright-cli.README.md \
+    "${sandbox_home}/.playwright/README.md"
+
   if [[ ! -e "${browser_marker}" ]]; then
-    install -d -m 0755 -o "${sandbox_user}" -g "${group_name}" "${sandbox_home}/.playwright"
     install -m 0644 -o "${sandbox_user}" -g "${group_name}" \
       /etc/agent-sandbox/playwright-cli.config.json \
       "${sandbox_home}/.playwright/cli.config.json"
@@ -150,6 +176,16 @@ if [[ "${browser_disabled}" == "false" ]]; then
   else
     printf 'browser tooling for %s is already initialized; skipping browser bootstrap\n' "${sandbox_user}"
   fi
+
+  playwright_cli_cdp_endpoint=""
+  if [[ "${chrome_remote_debugging_enabled}" == "true" ]]; then
+    playwright_cli_cdp_endpoint="http://127.0.0.1:${chrome_remote_debugging_port}"
+  fi
+  setpriv --reuid="${sandbox_uid}" --regid="${sandbox_gid}" --init-groups -- \
+    env \
+      HOME="${sandbox_home}" \
+      PLAYWRIGHT_CLI_CDP_ENDPOINT="${playwright_cli_cdp_endpoint}" \
+      configure-playwright-cli
 else
   printf 'browser tooling initialization is disabled; existing browser files are unchanged\n'
 fi
@@ -167,7 +203,7 @@ export HOME="/root"
 export DISPLAY="${display}"
 export XDG_RUNTIME_DIR="/run/user/${sandbox_uid}"
 
-if [[ "${XPRA_AUTO_START:-false}" == "true" || "${chrome_remote_debugging_enabled}" == "true" ]]; then
+if [[ "${xpra_auto_start}" == "true" ]]; then
   setpriv --reuid="${sandbox_uid}" --regid="${sandbox_gid}" --init-groups -- \
     env \
       HOME="${sandbox_home}" \
@@ -181,19 +217,6 @@ fi
 
 if [[ "${chrome_remote_debugging_enabled}" == "false" ]]; then
   exec "$@"
-fi
-
-chrome_remote_debugging_port="${CHROME_REMOTE_DEBUGGING_PORT:-9222}"
-chrome_remote_debugging_ready_timeout="${CHROME_REMOTE_DEBUGGING_READY_TIMEOUT:-30}"
-if [[ ! "${chrome_remote_debugging_port}" =~ ^[0-9]+$ ]] ||
-  (( chrome_remote_debugging_port < 1 || chrome_remote_debugging_port > 65535 )); then
-  printf 'CHROME_REMOTE_DEBUGGING_PORT must be an integer between 1 and 65535\n' >&2
-  exit 64
-fi
-if [[ ! "${chrome_remote_debugging_ready_timeout}" =~ ^[0-9]+$ ]] ||
-  (( chrome_remote_debugging_ready_timeout < 1 )); then
-  printf 'CHROME_REMOTE_DEBUGGING_READY_TIMEOUT must be a positive integer\n' >&2
-  exit 64
 fi
 
 env -i \
@@ -211,6 +234,7 @@ env -i \
     XPRA_PORT="${XPRA_PORT:-14500}" \
     XPRA_LOG_FILE="${XPRA_LOG_FILE:-${XDG_RUNTIME_DIR}/xpra-${display_number}.log}" \
     XPRA_READY_TIMEOUT="${XPRA_READY_TIMEOUT:-30}" \
+    XPRA_AUTO_START="${xpra_auto_start}" \
     CHROME_REMOTE_DEBUGGING_PORT="${chrome_remote_debugging_port}" \
     CHROME_REMOTE_DEBUGGING_USER_DATA_DIR="${CHROME_REMOTE_DEBUGGING_USER_DATA_DIR:-${state_dir}/chrome-devtools-profile}" \
     supervise-chrome &
