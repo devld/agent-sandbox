@@ -196,15 +196,16 @@ if [[ ! "${chrome_remote_debugging_ready_timeout}" =~ ^[0-9]+$ ]] ||
   exit 64
 fi
 
-setpriv --reuid="${sandbox_uid}" --regid="${sandbox_gid}" --init-groups -- \
-  env -i \
-    HOME="${sandbox_home}" \
-    USER="${sandbox_user}" \
-    LOGNAME="${sandbox_user}" \
-    PATH="${sandbox_home}/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" \
+env -i \
+    HOME="/root" \
+    PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" \
     LANG="${LANG:-en_US.UTF-8}" \
     LC_ALL="${LC_ALL:-en_US.UTF-8}" \
     TZ="${TZ:-UTC}" \
+    SANDBOX_USERNAME="${sandbox_user}" \
+    SANDBOX_UID="${sandbox_uid}" \
+    SANDBOX_GID="${sandbox_gid}" \
+    SANDBOX_HOME="${sandbox_home}" \
     DISPLAY="${DISPLAY}" \
     XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR}" \
     XPRA_PORT="${XPRA_PORT:-14500}" \

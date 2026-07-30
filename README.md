@@ -114,7 +114,9 @@ when its last window is closed or the browser crashes. This mode starts xpra
 even when `XPRA_AUTO_START=false`, and it uses the CloakBrowser executable
 recorded in the Playwright CLI configuration. The dedicated user data directory
 is required by current Chrome versions when command-line remote debugging is
-enabled.
+enabled. The supervisor and its CDP proxy run as root so sandbox-user processes
+cannot terminate them, while xpra and Chrome are always launched through
+`setpriv` as the unprivileged sandbox user.
 
 Chrome itself accepts remote debugging connections only on the container
 loopback interface. The image therefore uses `socat` to bridge the same port
@@ -262,11 +264,11 @@ directory configuration, and login-shell sourcing lines only when missing.
 Existing shell configuration is preserved and the injection is not duplicated.
 
 The image runs `tini` as PID 1, so Compose does not need `init: true`. The
-standalone API/MCP control-plane process runs as its root-owned child and does
-not depend on Node.js or Python. Each execution is launched through `setpriv`
-with the configured UID, GID, supplementary groups, home, and runtime
-directory. Because an empty API token allows unauthenticated command execution,
-publish the API only on an isolated trusted network or set a strong token. Do
-not mount the Docker socket, host credentials, or other privileged devices into
-this container; root inside a container is not a substitute for careful mount
-and network policy.
+standalone API/MCP control-plane process and optional Chrome supervisor run as
+root-owned descendants and do not depend on Node.js or Python. Executions,
+xpra, and Chrome are launched through `setpriv` with the configured UID, GID,
+supplementary groups, home, and runtime directory. Because an empty API token
+allows unauthenticated command execution, publish the API only on an isolated
+trusted network or set a strong token. Do not mount the Docker socket, host
+credentials, or other privileged devices into this container; root inside a
+container is not a substitute for careful mount and network policy.

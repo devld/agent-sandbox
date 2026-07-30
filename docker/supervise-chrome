@@ -1,15 +1,41 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-if (( EUID == 0 )); then
-  printf 'supervise-chrome must run as the sandbox user\n' >&2
+if (( EUID != 0 )); then
+  printf 'supervise-chrome must run as root\n' >&2
   exit 77
 fi
 
-debug_port="${CHROME_REMOTE_DEBUGGING_PORT:-9222}"
-user_data_dir="${CHROME_REMOTE_DEBUGGING_USER_DATA_DIR:-${HOME}/.config/agent-sandbox/chrome-devtools-profile}"
-playwright_config="${HOME}/.playwright/cli.config.json"
+export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 
+sandbox_user="${SANDBOX_USERNAME:-agent}"
+sandbox_uid="${SANDBOX_UID:-1000}"
+sandbox_gid="${SANDBOX_GID:-1000}"
+sandbox_home="${SANDBOX_HOME:-/home/${sandbox_user}}"
+display="${DISPLAY:-:100}"
+display_number="${display#:}"
+display_number="${display_number%%.*}"
+runtime_dir="${XDG_RUNTIME_DIR:-/run/user/${sandbox_uid}}"
+debug_port="${CHROME_REMOTE_DEBUGGING_PORT:-9222}"
+user_data_dir="${CHROME_REMOTE_DEBUGGING_USER_DATA_DIR:-${sandbox_home}/.config/agent-sandbox/chrome-devtools-profile}"
+playwright_config="${sandbox_home}/.playwright/cli.config.json"
+
+if [[ ! "${sandbox_user}" =~ ^[a-z_][a-z0-9_-]{0,31}$ ]] || [[ "${sandbox_user}" == "root" ]]; then
+  printf 'SANDBOX_USERNAME must be a valid non-root Linux username\n' >&2
+  exit 64
+fi
+if [[ ! "${sandbox_uid}" =~ ^[0-9]+$ ]] || (( sandbox_uid == 0 )); then
+  printf 'SANDBOX_UID must be a positive integer\n' >&2
+  exit 64
+fi
+if [[ ! "${sandbox_gid}" =~ ^[0-9]+$ ]] || (( sandbox_gid == 0 )); then
+  printf 'SANDBOX_GID must be a positive integer\n' >&2
+  exit 64
+fi
+if [[ "${sandbox_home}" != /* ]]; then
+  printf 'SANDBOX_HOME must be an absolute path\n' >&2
+  exit 64
+fi
 if [[ ! "${debug_port}" =~ ^[0-9]+$ ]] || (( debug_port < 1 || debug_port > 65535 )); then
   printf 'CHROME_REMOTE_DEBUGGING_PORT must be an integer between 1 and 65535\n' >&2
   exit 64
@@ -38,7 +64,29 @@ if [[ -z "${bind_address}" || "${bind_address}" == 127.* || "${bind_address}" ==
   exit 69
 fi
 
-install -d -m 0700 "${user_data_dir}"
+sandbox_command=(
+  setpriv
+  "--reuid=${sandbox_uid}"
+  "--regid=${sandbox_gid}"
+  --init-groups
+  --
+  env
+  -i
+  "HOME=${sandbox_home}"
+  "USER=${sandbox_user}"
+  "LOGNAME=${sandbox_user}"
+  "PATH=${sandbox_home}/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+  "LANG=${LANG:-en_US.UTF-8}"
+  "LC_ALL=${LC_ALL:-en_US.UTF-8}"
+  "TZ=${TZ:-UTC}"
+  "DISPLAY=${display}"
+  "XDG_RUNTIME_DIR=${runtime_dir}"
+  "XPRA_PORT=${XPRA_PORT:-14500}"
+  "XPRA_LOG_FILE=${XPRA_LOG_FILE:-${runtime_dir}/xpra-${display_number}.log}"
+  "XPRA_READY_TIMEOUT=${XPRA_READY_TIMEOUT:-30}"
+)
+
+"${sandbox_command[@]}" install -d -m 0700 "${user_data_dir}"
 
 chrome_pid=""
 proxy_pid=""
@@ -73,9 +121,9 @@ start_proxy
 restart_delay=1
 while [[ "${stopping}" == "false" ]]; do
   started_at="${SECONDS}"
-  start-xpra
+  "${sandbox_command[@]}" start-xpra
   printf 'starting Chrome remote debugging on 127.0.0.1:%s\n' "${debug_port}"
-  "${browser_path}" \
+  "${sandbox_command[@]}" "${browser_path}" \
     --remote-debugging-port="${debug_port}" \
     --user-data-dir="${user_data_dir}" \
     --no-first-run \
