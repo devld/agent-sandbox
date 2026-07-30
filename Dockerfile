@@ -84,12 +84,13 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
 
 COPY --from=control-plane-builder /out/agent-sandbox /usr/local/bin/agent-sandbox
 COPY docker/playwright-cli.config.json /etc/agent-sandbox/playwright-cli.config.json
-COPY docker/entrypoint.sh docker/install-or-update-cloakbrowser docker/start-xpra /usr/local/bin/
+COPY docker/entrypoint.sh docker/install-or-update-cloakbrowser docker/start-xpra docker/supervise-chrome /usr/local/bin/
 RUN chmod 0755 \
       /usr/local/bin/agent-sandbox \
       /usr/local/bin/entrypoint.sh \
       /usr/local/bin/install-or-update-cloakbrowser \
-      /usr/local/bin/start-xpra
+      /usr/local/bin/start-xpra \
+      /usr/local/bin/supervise-chrome
 
 ENV LANG=en_US.UTF-8 \
     LC_ALL=en_US.UTF-8 \
@@ -101,15 +102,22 @@ ENV SANDBOX_USERNAME=agent \
     SANDBOX_API_HOST=0.0.0.0 \
     SANDBOX_API_PORT=3000 \
     SANDBOX_BROWSER_DISABLED=false \
+    CHROME_REMOTE_DEBUGGING_ENABLED=false \
+    CHROME_REMOTE_DEBUGGING_PORT=9222 \
+    CHROME_REMOTE_DEBUGGING_READY_TIMEOUT=30 \
     DISPLAY=:100 \
     XPRA_AUTO_START=false \
     XPRA_PORT=14500
 
-EXPOSE 3000 14500
+EXPOSE 3000 9222 14500
 HEALTHCHECK --interval=10s --timeout=3s --start-period=4h --start-interval=2s --retries=3 \
     CMD test -e "/home/${SANDBOX_USERNAME}/.config/agent-sandbox/home-initialized" \
         && curl --fail --silent --show-error --max-time 2 \
             "http://127.0.0.1:${SANDBOX_API_PORT}/healthz" >/dev/null \
+        && { test "$(printf '%s' "${CHROME_REMOTE_DEBUGGING_ENABLED}" \
+                       | tr '[:upper:]' '[:lower:]')" != "true" \
+             || curl --fail --silent --show-error --max-time 2 \
+                  "http://127.0.0.1:${CHROME_REMOTE_DEBUGGING_PORT}/json/version" >/dev/null; } \
         || exit 1
 ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/entrypoint.sh"]
 CMD ["agent-sandbox"]
