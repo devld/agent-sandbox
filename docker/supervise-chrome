@@ -88,6 +88,7 @@ sandbox_command=(
   "DISPLAY=${display}"
   "XDG_RUNTIME_DIR=${runtime_dir}"
   "XPRA_PORT=${XPRA_PORT:-14500}"
+  "XPRA_DEFAULT_RESOLUTION=${XPRA_DEFAULT_RESOLUTION:-1920x1080}"
   "XPRA_LOG_FILE=${XPRA_LOG_FILE:-${runtime_dir}/xpra-${display_number}.log}"
   "XPRA_READY_TIMEOUT=${XPRA_READY_TIMEOUT:-30}"
 )

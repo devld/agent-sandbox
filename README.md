@@ -72,6 +72,7 @@ running services.
 | `EXEC_OUTPUT_TTL` | `12h` | API | Retention duration for completed task output files. Uses Go duration syntax. |
 | `EXEC_CLEANUP_INTERVAL` | `10m` | API | Interval between expired-output cleanup passes. Uses Go duration syntax. |
 | `XPRA_AUTO_START` | `false` | Entrypoint | Starts the xpra/Xvfb desktop before the API when set to `true`. |
+| `XPRA_DEFAULT_RESOLUTION` | `1920x1080` | xpra, Compose | Initial virtual-display resolution in positive `WIDTHxHEIGHT` form. Connected clients may resize the display. |
 | `XPRA_PORT` | `14500` | xpra, Compose | xpra HTML server port when passed to the container. In the provided Compose file it selects the host port published to container port `14500`. |
 | `XPRA_LOG_FILE` | `$XDG_RUNTIME_DIR/xpra-$DISPLAY.log` | xpra | Overrides the xpra server log path. |
 | `XPRA_READY_TIMEOUT` | `30` | xpra | Seconds to wait for the X11 socket and live xpra session. |
@@ -105,6 +106,8 @@ already included in the image.
 
 `XPRA_AUTO_START=true` starts xpra before the API. `DISPLAY` is exported to all
 agent executions and written to `/etc/profile.d/agent-sandbox-display.sh`.
+`XPRA_DEFAULT_RESOLUTION` sets the initial virtual-display resolution; xpra may
+resize it later to match a connected client.
 `start-xpra` is idempotent and waits for both the X11 socket and a live xpra
 session, avoiding browser startup races.
 

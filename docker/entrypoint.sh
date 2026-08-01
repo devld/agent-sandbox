@@ -212,6 +212,7 @@ if [[ "${xpra_auto_start}" == "true" ]]; then
       DISPLAY="${DISPLAY}" \
       XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR}" \
       XPRA_PORT="${XPRA_PORT:-14500}" \
+      XPRA_DEFAULT_RESOLUTION="${XPRA_DEFAULT_RESOLUTION:-1920x1080}" \
       start-xpra
 fi
 
@@ -232,6 +233,7 @@ env -i \
     DISPLAY="${DISPLAY}" \
     XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR}" \
     XPRA_PORT="${XPRA_PORT:-14500}" \
+    XPRA_DEFAULT_RESOLUTION="${XPRA_DEFAULT_RESOLUTION:-1920x1080}" \
     XPRA_LOG_FILE="${XPRA_LOG_FILE:-${XDG_RUNTIME_DIR}/xpra-${display_number}.log}" \
     XPRA_READY_TIMEOUT="${XPRA_READY_TIMEOUT:-30}" \
     XPRA_AUTO_START="${xpra_auto_start}" \

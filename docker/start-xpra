@@ -5,9 +5,15 @@ display="${DISPLAY:-:100}"
 display_number="${display#:}"
 display_number="${display_number%%.*}"
 xpra_port="${XPRA_PORT:-14500}"
+default_resolution="${XPRA_DEFAULT_RESOLUTION:-1920x1080}"
 runtime_dir="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
 log_file="${XPRA_LOG_FILE:-${runtime_dir}/xpra-${display_number}.log}"
 ready_timeout="${XPRA_READY_TIMEOUT:-30}"
+
+if [[ ! "${default_resolution}" =~ ^[1-9][0-9]*x[1-9][0-9]*$ ]]; then
+  printf 'XPRA_DEFAULT_RESOLUTION must use positive WIDTHxHEIGHT dimensions\n' >&2
+  exit 64
+fi
 
 mkdir -p "${runtime_dir}" "$(dirname "${log_file}")"
 chmod 700 "${runtime_dir}"
@@ -30,6 +36,7 @@ xpra start "${display}" \
   --pulseaudio=no \
   --notifications=no \
   --mdns=no \
+  --resize-display="${default_resolution}" \
   --log-file="${log_file}"
 
 deadline=$((SECONDS + ready_timeout))
