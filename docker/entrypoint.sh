@@ -203,6 +203,10 @@ export HOME="/root"
 export DISPLAY="${display}"
 export XDG_RUNTIME_DIR="/run/user/${sandbox_uid}"
 
+# Xvfb runs as the sandbox user and cannot create this root-owned X11 socket
+# directory itself. Prepare it before dropping privileges.
+install -d -m 1777 /tmp/.X11-unix
+
 if [[ "${xpra_auto_start}" == "true" ]]; then
   setpriv --reuid="${sandbox_uid}" --regid="${sandbox_gid}" --init-groups -- \
     env \
