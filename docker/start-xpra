@@ -9,6 +9,7 @@ default_resolution="${XPRA_DEFAULT_RESOLUTION:-1920x1080}"
 runtime_dir="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
 log_file="${XPRA_LOG_FILE:-${runtime_dir}/xpra-${display_number}.log}"
 ready_timeout="${XPRA_READY_TIMEOUT:-30}"
+x11_lock="/tmp/.X${display_number}-lock"
 x11_socket="/tmp/.X11-unix/X${display_number}"
 session_dir="${runtime_dir}/xpra/${display_number}"
 
@@ -23,6 +24,32 @@ chmod 700 "${runtime_dir}"
 is_ready() {
   [[ -S "${x11_socket}" ]] &&
     xpra list 2>/dev/null | grep -Fq "LIVE session at ${display}"
+}
+
+is_live_x_server() {
+  local lock_pid=""
+  local lock_command=""
+
+  if [[ -S "${x11_socket}" ]] &&
+    command -v fuser >/dev/null 2>&1 &&
+    fuser -s "${x11_socket}" 2>/dev/null; then
+    return 0
+  fi
+
+  if [[ -f "${x11_lock}" ]]; then
+    read -r lock_pid <"${x11_lock}" || lock_pid=""
+    if [[ "${lock_pid}" =~ ^[0-9]+$ ]] &&
+      [[ -r "/proc/${lock_pid}/comm" ]]; then
+      read -r lock_command <"/proc/${lock_pid}/comm" || lock_command=""
+      case "${lock_command}" in
+        Xvfb|Xorg|Xephyr)
+          return 0
+          ;;
+      esac
+    fi
+  fi
+
+  return 1
 }
 
 print_logs() {
@@ -56,12 +83,40 @@ clean_stale_session() {
   fi
 }
 
+clean_stale_display() {
+  local -a removed=()
+
+  if [[ ! -e "${x11_lock}" && ! -S "${x11_socket}" ]]; then
+    return 0
+  fi
+
+  if is_live_x_server; then
+    printf 'display %s is still active; preserving X11 lock and socket\n' \
+      "${display}" >&2
+    return 0
+  fi
+
+  if [[ -e "${x11_lock}" ]]; then
+    rm -f -- "${x11_lock}"
+    removed+=("${x11_lock}")
+  fi
+  if [[ -S "${x11_socket}" ]]; then
+    rm -f -- "${x11_socket}"
+    removed+=("${x11_socket}")
+  fi
+
+  if ((${#removed[@]} > 0)); then
+    printf 'removed stale X11 artifacts: %s\n' "${removed[*]}" >&2
+  fi
+}
+
 if is_ready; then
   printf 'xpra is already ready on %s\n' "${display}"
   exit 0
 fi
 
 clean_stale_session
+clean_stale_display
 rm -f "${log_file}.new"
 
 if ! command -v Xvfb >/dev/null 2>&1; then
