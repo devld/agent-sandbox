@@ -26,7 +26,7 @@ import (
 
 const (
 	defaultForegroundWait         = 120 * time.Second
-	defaultInlineOutputLimit      = 64 * 1024
+	defaultInlineOutputLimit      = 1 * 1024
 	defaultOutputTTL              = 12 * time.Hour
 	defaultCleanupInterval        = 10 * time.Minute
 	completedRecordRetention      = 10 * time.Minute

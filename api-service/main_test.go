@@ -85,6 +85,51 @@ func TestTaskOutputSpillsCompleteStreamToFile(t *testing.T) {
 	}
 }
 
+func TestTaskOutputInlineLimitsAreIndependentPerStream(t *testing.T) {
+	taskDir := filepath.Join(t.TempDir(), "t1")
+	stdout := &taskOutput{
+		name:        "stdout",
+		taskDir:     taskDir,
+		inlineLimit: 1024,
+		uid:         os.Getuid(),
+		gid:         os.Getgid(),
+	}
+	stderr := &taskOutput{
+		name:        "stderr",
+		taskDir:     taskDir,
+		inlineLimit: 1024,
+		uid:         os.Getuid(),
+		gid:         os.Getgid(),
+	}
+	defer stdout.close()
+	defer stderr.close()
+
+	if _, err := stdout.Write([]byte(strings.Repeat("o", 1024))); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := stderr.Write([]byte(strings.Repeat("e", 1024))); err != nil {
+		t.Fatal(err)
+	}
+	if output := stdout.snapshot(nil, time.Hour); output.Type != "inline" {
+		t.Fatalf("stdout should remain inline at the limit: %#v", output)
+	}
+	if output := stderr.snapshot(nil, time.Hour); output.Type != "inline" {
+		t.Fatalf("stderr should remain inline at the limit: %#v", output)
+	}
+
+	if _, err := stdout.Write([]byte("x")); err != nil {
+		t.Fatal(err)
+	}
+	stdoutOutput := stdout.snapshot(nil, time.Hour)
+	if stdoutOutput.Type != "file" {
+		t.Fatalf("stdout should spill independently: %#v", stdoutOutput)
+	}
+	stderrOutput := stderr.snapshot(nil, time.Hour)
+	if stderrOutput.Type != "inline" || stderrOutput.Bytes != 1024 {
+		t.Fatalf("stderr should remain inline after stdout spills: %#v", stderrOutput)
+	}
+}
+
 func TestSynchronousShellExecutionIsRemovedFromTaskList(t *testing.T) {
 	manager := newTaskManager(testConfig(t))
 	result, status, err := manager.execute(executionRequest{

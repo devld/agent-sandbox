@@ -67,7 +67,7 @@ running services.
 | `CHROME_REMOTE_DEBUGGING_ENABLED` | `false` | Entrypoint, Chrome, Playwright CLI | Starts a supervised Chrome with remote debugging enabled and configures Playwright CLI to use its CDP endpoint by default. Chrome is headed when xpra auto-start is enabled and headless otherwise. Requires browser tooling. |
 | `CHROME_REMOTE_DEBUGGING_READY_TIMEOUT` | `30` | Entrypoint, Chrome | Seconds to wait for the Chrome DevTools endpoint during container startup. |
 | `CHROME_REMOTE_DEBUGGING_USER_DATA_DIR` | `$HOME/.config/agent-sandbox/chrome-devtools-profile` | Chrome | Absolute path of the dedicated remote-debugging browser profile. |
-| `EXEC_INLINE_OUTPUT_LIMIT_BYTES` | `65536` | API | Per-stream threshold after which complete stdout or stderr moves to an output file. |
+| `EXEC_INLINE_OUTPUT_LIMIT_BYTES` | `1024` | API | Per-stream threshold after which complete stdout or stderr moves to an output file. |
 | `EXEC_OUTPUT_DIR` | `/tmp/agent-sandbox/tasks` | API | Root directory for task output files and completion markers. |
 | `EXEC_OUTPUT_TTL` | `12h` | API | Retention duration for completed task output files. Uses Go duration syntax. |
 | `EXEC_CLEANUP_INTERVAL` | `10m` | API | Interval between expired-output cleanup passes. Uses Go duration syntax. |
@@ -229,7 +229,7 @@ There is intentionally no execution-time, concurrency, or output-file size
 limit.
 
 stdout and stderr are tracked independently and returned live by the status
-endpoint. Each remains inline until `EXEC_INLINE_OUTPUT_LIMIT_BYTES` (64 KiB by
+endpoint. Each remains inline until `EXEC_INLINE_OUTPUT_LIMIT_BYTES` (1 KiB by
 default), then its complete contents move to a sandbox-user-readable file below
 `/tmp/agent-sandbox/tasks/<task-id>/`. Completed output files expire after
 `EXEC_OUTPUT_TTL` (12 hours by default), with cleanup performed every
